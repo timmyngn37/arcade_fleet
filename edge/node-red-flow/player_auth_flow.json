@@ -1,0 +1,141 @@
+[
+    {
+        "id": "auth_flow",
+        "type": "tab",
+        "label": "Player Auth Flow",
+        "disabled": false,
+        "info": "Handles NFC scan events. Guest cards resolve immediately with default settings. Real cards call player-profile-service (not yet implemented - this branch will error with ECONNREFUSED until that service exists)."
+    },
+    {
+        "id": "nfc_in",
+        "type": "mqtt in",
+        "z": "auth_flow",
+        "name": "NFC scan",
+        "topic": "shared-io/nfc/scan",
+        "qos": "2",
+        "datatype": "utf8",
+        "broker": "broker1",
+        "inputs": 0,
+        "x": 150,
+        "y": 100,
+        "wires": [
+            [
+                "parse_fn"
+            ]
+        ]
+    },
+    {
+        "id": "parse_fn",
+        "type": "function",
+        "z": "auth_flow",
+        "name": "Parse scan payload",
+        "func": "msg.payload = JSON.parse(msg.payload);\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 330,
+        "y": 100,
+        "wires": [
+            [
+                "check_guest"
+            ]
+        ]
+    },
+    {
+        "id": "check_guest",
+        "type": "switch",
+        "z": "auth_flow",
+        "name": "Check isGuest",
+        "property": "payload.isGuest",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "false"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 540,
+        "y": 100,
+        "wires": [
+            [
+                "guest_fn"
+            ],
+            [
+                "http_req"
+            ]
+        ]
+    },
+    {
+        "id": "guest_fn",
+        "type": "function",
+        "z": "auth_flow",
+        "name": "Build guest response",
+        "func": "msg.payload = JSON.stringify({\n  playerId: null,\n  accessibilitySettings: {\n    touchCalibrationWindowMs: 100,\n    hapticRhythmModeEnabled: false\n  }\n});\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 740,
+        "y": 60,
+        "wires": [
+            [
+                "debug_final"
+            ]
+        ]
+    },
+    {
+        "id": "http_req",
+        "type": "http request",
+        "z": "auth_flow",
+        "name": "Get player profile (TODO: not built yet)",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "http://localhost:3001/profile/{{payload.cardId}}",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 790,
+        "y": 140,
+        "wires": [
+            [
+                "debug_final"
+            ]
+        ]
+    },
+    {
+        "id": "debug_final",
+        "type": "debug",
+        "z": "auth_flow",
+        "name": "Resolved player/guest",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "complete": "payload",
+        "x": 1100,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "broker1",
+        "type": "mqtt-broker",
+        "name": "HiveMQ Test Broker",
+        "broker": "broker.hivemq.com",
+        "port": "1883",
+        "clientid": "",
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true
+    }
+]

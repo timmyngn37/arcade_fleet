@@ -1,0 +1,206 @@
+[
+    {
+        "id": "flow1",
+        "type": "tab",
+        "label": "Judgement Flow",
+        "disabled": false,
+        "info": "Local judgement engine: grades touch input, fires local haptic feedback, and routes motion input as a cross-cabinet brace effect. Topics are now venue-scoped (venue/{venueId}/...). Cabinet pairing is still hardcoded (TODO: query DuoPairing via session-service instead)."
+    },
+    {
+        "id": "touch_in",
+        "type": "mqtt in",
+        "z": "flow1",
+        "name": "Touch input (all venues, all cabinets)",
+        "topic": "venue/+/cabinet/+/input/touch",
+        "qos": "2",
+        "datatype": "utf8",
+        "broker": "broker1",
+        "nl": false,
+        "rap": false,
+        "inputs": 0,
+        "x": 320,
+        "y": 360,
+        "wires": [
+            [
+                "grade_fn"
+            ]
+        ]
+    },
+    {
+        "id": "grade_fn",
+        "type": "function",
+        "z": "flow1",
+        "name": "Calculate grade",
+        "func": "const event = JSON.parse(msg.payload);\n\n// topic shape: venue/{venueId}/cabinet/{cabinetId}/input/touch\nconst parts = msg.topic.split('/');\nconst venueId = parts[1];\nconst cabinetId = parts[3];\n\nconst timingError = Math.abs(event.actualTimestamp - event.idealTimestamp);\n\nlet grade;\nif (timingError <= 30) grade = 'perfect';\nelse if (timingError <= 60) grade = 'great';\nelse if (timingError <= 100) grade = 'good';\nelse grade = 'miss';\n\nmsg.payload = JSON.stringify({ grade: grade, noteId: event.noteId, cabinetId: cabinetId, venueId: venueId });\nmsg.cabinetId = cabinetId;\nmsg.venueId = venueId;\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 540,
+        "y": 360,
+        "wires": [
+            [
+                "debug_grade",
+                "session_topic_fn",
+                "haptic_cmd_fn"
+            ]
+        ]
+    },
+    {
+        "id": "debug_grade",
+        "type": "debug",
+        "z": "flow1",
+        "name": "Grade result",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 730,
+        "y": 340,
+        "wires": []
+    },
+    {
+        "id": "session_topic_fn",
+        "type": "function",
+        "z": "flow1",
+        "name": "Set session-service topic",
+        "func": "msg.topic = `venue/${msg.venueId}/session/${msg.cabinetId}/event`;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 770,
+        "y": 380,
+        "wires": [
+            [
+                "session_out"
+            ]
+        ]
+    },
+    {
+        "id": "session_out",
+        "type": "mqtt out",
+        "z": "flow1",
+        "name": "Publish to session-service",
+        "topic": "",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "broker1",
+        "x": 1070,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "haptic_cmd_fn",
+        "type": "function",
+        "z": "flow1",
+        "name": "Build haptic command (local)",
+        "func": "const result = JSON.parse(msg.payload);\nmsg.payload = JSON.stringify({ actuator: 'haptic', intensity: result.grade });\nmsg.topic = `venue/${msg.venueId}/cabinet/${msg.cabinetId}/actuator/cmd`;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 780,
+        "y": 420,
+        "wires": [
+            [
+                "haptic_out"
+            ]
+        ]
+    },
+    {
+        "id": "motion_in",
+        "type": "mqtt in",
+        "z": "flow1",
+        "name": "Motion input (all venues, all cabinets)",
+        "topic": "venue/+/cabinet/+/input/motion",
+        "qos": "2",
+        "datatype": "utf8",
+        "broker": "broker1",
+        "nl": false,
+        "rap": false,
+        "inputs": 0,
+        "x": 320,
+        "y": 520,
+        "wires": [
+            [
+                "route_motion_fn"
+            ]
+        ]
+    },
+    {
+        "id": "route_motion_fn",
+        "type": "function",
+        "z": "flow1",
+        "name": "Route motion to paired cabinet (TODO: hardcoded)",
+        "func": "// TODO: prototype only - hardcoded pairing, and assumes every venue\n// pairs A<->B. Real version should query DuoPairing via session-service\n// (scoped by venueId too) instead of hardcoding this map.\nconst pairingMap = { A: 'B', B: 'A' };\n\nconst event = JSON.parse(msg.payload);\n\n// topic shape: venue/{venueId}/cabinet/{cabinetId}/input/motion\nconst parts = msg.topic.split('/');\nconst venueId = parts[1];\nconst sourceCabinetId = parts[3];\nconst targetCabinetId = pairingMap[sourceCabinetId];\n\nif (!targetCabinetId) {\n  node.warn(`No paired cabinet found for ${sourceCabinetId}`);\n  return null;\n}\n\nmsg.payload = JSON.stringify({\n  actuator: 'haptic',\n  intensity: 'brace',\n  sourceGesture: event.gesture\n});\nmsg.topic = `venue/${venueId}/cabinet/${targetCabinetId}/actuator/cmd`;\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 520,
+        "wires": [
+            [
+                "debug_motion",
+                "haptic_out"
+            ]
+        ]
+    },
+    {
+        "id": "debug_motion",
+        "type": "debug",
+        "z": "flow1",
+        "name": "Motion routing result",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1060,
+        "y": 560,
+        "wires": []
+    },
+    {
+        "id": "haptic_out",
+        "type": "mqtt out",
+        "z": "flow1",
+        "name": "Publish actuator command",
+        "topic": "",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "broker1",
+        "x": 1080,
+        "y": 500,
+        "wires": []
+    },
+    {
+        "id": "broker1",
+        "type": "mqtt-broker",
+        "name": "HiveMQ Test Broker",
+        "broker": "broker.hivemq.com",
+        "port": "1883",
+        "clientid": "",
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true
+    }
+]

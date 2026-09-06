@@ -1,0 +1,29 @@
+# Environment variables
+.env
+edge/.env
+microservices/.env
+
+# Dependencies
+node_modules/
+edge/node_modules/
+microservices/node_modules/
+
+# npm logs
+npm-debug.log*
+package-lock.json.bak
+
+# OS-specific junk
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Node-RED runtime data (keep only exported flow JSON, not runtime state)
+edge/node-red-flows/.flows.json.backup
+edge/node-red-flows/.config.json
+edge/node-red-flows/.sessions.json
+
+# Logs
+*.log
