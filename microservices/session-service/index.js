@@ -6,10 +6,12 @@ const Session = require('./models/session');
 const DuoPairing = require('./models/duoPairing');
 
 const WELLBEING_THRESHOLD_MINUTES = 45;
-
-// How long a session can go without a new event before it's considered finished.
 const INACTIVITY_THRESHOLD_MINUTES = 2;
 const COMPLETION_CHECK_INTERVAL_MS = 30000;
+
+// Simplification, not the real "cabinet selection" step from the proposal
+const PENDING_PLAYER_TTL_MS = 30000;
+const pendingPlayerByVenue = {}; // venueId -> { playerId, resolvedAt }
 
 let mqttClient;
 
@@ -21,7 +23,7 @@ async function start() {
   mqttClient.on('connect', () => {
     console.log('Session service connected');
     mqttClient.subscribe('venue/+/session/+/event');
-    mqttClient.subscribe('venue/+/shared-io/nfc/scan');
+    mqttClient.subscribe('venue/+/player-profile/resolved');
 
     setInterval(completeInactiveSessions, COMPLETION_CHECK_INTERVAL_MS);
   });
@@ -29,13 +31,14 @@ async function start() {
   mqttClient.on('message', async (topic, message) => {
     try {
       const payload = JSON.parse(message.toString());
-      const parts = topic.split('/'); // venue/{venueId}/session/{cabinetId}/event
+      const parts = topic.split('/');
 
       if (parts[2] === 'session' && parts[4] === 'event') {
         const cabinetId = parts[3];
         await handleGameplayEvent(cabinetId, payload);
-      } else if (topic.endsWith('/shared-io/nfc/scan')) {
-        await handleNfcScan(payload);
+      } else if (topic.endsWith('/player-profile/resolved')) {
+        const venueId = parts[1];
+        handlePlayerResolved(venueId, payload);
       }
     } catch (error) {
       console.log(`Failed to process message on ${topic}: ${error.message}`);
@@ -47,9 +50,24 @@ async function start() {
   });
 }
 
-// TODO: not yet binding scanned playerId to a session/cabinet.
-async function handleNfcScan(scan) {
-  console.log(`NFC scan received: ${JSON.stringify(scan)}`);
+function handlePlayerResolved(venueId, resolved) {
+  if (!resolved.playerId) {
+    console.log(`Guest scan at venue ${venueId} - no pending player to bind`);
+    return;
+  }
+
+  pendingPlayerByVenue[venueId] = { playerId: resolved.playerId, resolvedAt: Date.now() };
+  console.log(`Pending player ${resolved.playerId} registered for venue ${venueId}`);
+}
+
+function takePendingPlayerId(venueId) {
+  const pending = pendingPlayerByVenue[venueId];
+  if (!pending) return null;
+
+  const isExpired = Date.now() - pending.resolvedAt > PENDING_PLAYER_TTL_MS;
+  delete pendingPlayerByVenue[venueId]; // single use either way
+
+  return isExpired ? null : pending.playerId;
 }
 
 async function handleGameplayEvent(cabinetId, event) {
@@ -66,7 +84,7 @@ async function handleGameplayEvent(cabinetId, event) {
   checkWellbeing(session);
 
   await session.save();
-  console.log(`Session ${session.sessionId} (${session.mode}) updated for cabinet ${cabinetId}`);
+  console.log(`Session ${session.sessionId} (${session.mode}, playerId: ${session.playerId}) updated for cabinet ${cabinetId}`);
 }
 
 async function findOrCreateDuoSession(pairing, venueId) {
@@ -82,7 +100,7 @@ async function findOrCreateDuoSession(pairing, venueId) {
     session = new Session({
       sessionId: `sess-duo-${pairing.pairingId}`,
       venueId: venueId,
-      playerId: null,
+      playerId: takePendingPlayerId(venueId),
       mode: 'duo',
       cabinets: cabinets,
       accuracyState: cabinets.map((cabinetId) => ({
@@ -108,7 +126,7 @@ async function findOrCreateSoloSession(cabinetId, venueId) {
     session = new Session({
       sessionId: `sess-${cabinetId}-${Date.now()}`,
       venueId: venueId,
-      playerId: null,
+      playerId: takePendingPlayerId(venueId),
       mode: 'solo',
       cabinets: [cabinetId],
       accuracyState: [{ cabinetId, hits: 0, misses: 0, accuracy: 100 }]
@@ -149,9 +167,6 @@ function checkWellbeing(session) {
   }
 }
 
-// Runs periodically (not triggered by any single event) - finds sessions
-// that have gone quiet for too long and closes them out, then tells the
-// rest of the system via MQTT so leaderboard-service can react.
 async function completeInactiveSessions() {
   const cutoff = new Date(Date.now() - INACTIVITY_THRESHOLD_MINUTES * 60000);
 
