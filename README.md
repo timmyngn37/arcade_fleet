@@ -7,12 +7,12 @@ microservices connected over MQTT.
 
 ## Architecture
 
-- **Edge tier** (`edge/`) — physical sensors/actuators simulated in Node.js,
+- **Edge tier** (`edge/`) - physical sensors/actuators simulated in Node.js,
   plus one Node-RED flow doing local judgement (touch/motion grading,
   local and cross-cabinet haptic feedback).
-- **Transport tier** — MQTT (HiveMQ public test broker for now). Topics are
+- **Transport tier** - MQTT (HiveMQ public test broker for now). Topics are
   venue-scoped (`venue/{venueId}/...`) to support multiple arcade locations.
-- **Cloud tier** (`microservices/`) — independent Node.js services, each
+- **Cloud tier** (`microservices/`) - independent Node.js services, each
   with its own MongoDB model, communicating entirely over MQTT (no HTTP
   between services). `player-profile-service` resolves NFC scans directly;
   `session-service` binds resolved players to sessions and detects duo
@@ -34,7 +34,7 @@ standing in for what will later be AWS Lambda/managed services.
 ## Setup
 
 1. Copy `.env.example` to `.env` in **both** `edge/` and `microservices/`.
-   - `edge/.env` needs `MQTT_BROKER_URL` and `VENUE_ID` (no `MONGODB_URI` —
+   - `edge/.env` needs `MQTT_BROKER_URL` and `VENUE_ID` (no `MONGODB_URI` -
      edge nodes never connect to the database directly, only via MQTT).
    - `microservices/.env` needs `MQTT_BROKER_URL` and `MONGODB_URI`.
 2. `cd edge && npm install`
@@ -59,11 +59,11 @@ Start in this order, each in its own terminal:
 9. `cd edge && node telemetry_agent.js`
 10. `cd edge/cabinet && CABINET_ID=A node index.js`
 11. `cd edge/cabinet && CABINET_ID=B node index.js` (needed to see duo
-    pairing and cross-cabinet haptic effects — see Known Limitations)
+    pairing and cross-cabinet haptic effects - see Known Limitations)
 12. `cd edge/shared-io && node index.js`
 
 All edge nodes must use the same `VENUE_ID` in their `.env` (or rely on the
-shared default `venue-01`) — topics are scoped per venue, so a mismatch
+shared default `venue-01`) - topics are scoped per venue, so a mismatch
 means messages won't be received.
 
 ## Current status
@@ -96,10 +96,6 @@ means messages won't be received.
 - `credits-service` records transactions as anonymous (`playerId: null`),
   since the coin/card reader doesn't currently report which card, if any,
   was tapped beforehand.
-- `player_auth_flow.json` (Node-RED) is superseded by
-  `player-profile-service` subscribing to NFC scans directly over MQTT,
-  for consistency with how every other service in the system communicates;
-  the flow file is no longer part of the active path.
 - All topics assume a single venue in testing; multi-venue scaling is
   supported by the topic structure but not yet exercised with real
   multi-venue data.
