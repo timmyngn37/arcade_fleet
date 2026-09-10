@@ -11,7 +11,7 @@
         "type": "mqtt in",
         "z": "auth_flow",
         "name": "NFC scan",
-        "topic": "shared-io/nfc/scan",
+        "topic": "venue/+/shared-io/nfc/scan",
         "qos": "2",
         "datatype": "utf8",
         "broker": "broker1",
