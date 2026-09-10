@@ -22,7 +22,14 @@ let noteId = 0;
 client.on('connect', () => {
     console.log(`Cabinet ${config.cabinetId} connected`);
     setLedState('idle');
-    
+
+    // Announce this cabinet is online, for device-management-service to
+    // pick up - separate concern from gameplay/actuator topics.
+    client.publish(
+        `venue/${config.venueId}/device/${config.cabinetId}/status`,
+        JSON.stringify({ status: 'online', capabilities: ['touch', 'motion', 'haptic', 'led'] })
+    );
+
     client.subscribe(config.topics.actuatorCommand);
     scheduleNextInputEvent();
 });
@@ -46,7 +53,6 @@ function scheduleNextInputEvent() {
 function publishNextInputEvent() {
     noteId++;
 
-    // ~70% touch, ~30% motion, matching the chart design in the proposal.
     const isMotion = Math.random() < 0.3;
 
     if (isMotion) {
@@ -78,8 +84,6 @@ function handleActuatorCommand(message) {
         return;
     }
 
-    // command example: { actuator: "haptic", intensity: "perfect" }
-    //               or: { actuator: "led", state: "in-session" }
     if (command.actuator === 'haptic') {
         triggerHaptic(command.intensity);
     } else if (command.actuator === 'led') {

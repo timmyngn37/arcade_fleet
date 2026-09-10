@@ -1,13 +1,11 @@
-// TODO - stub only. Planned fields per proposal's Data Design:
-// playerId, transactionType, amount, timestamp
-
 const mongoose = require('mongoose');
 
 const transactionSchema = new mongoose.Schema(
   {
     transactionId: { type: String, required: true, unique: true },
-    playerId: { type: String, required: true },
-    transactionType: { type: String, enum: ['credit', 'debit'], required: true },
+    playerId: { type: String, default: null }, // null = anonymous coin/card payment, not tied to a profile
+    venueId: { type: String, required: true },
+    method: { type: String, enum: ['coin', 'card'], required: true },
     amount: { type: Number, required: true }
   },
   { timestamps: true }
