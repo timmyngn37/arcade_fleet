@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const mqtt = require('mqtt');
 const { connectDB } = require('../shared/db');
 const HealthCheck = require('./models/healthCheck');

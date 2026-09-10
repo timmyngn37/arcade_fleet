@@ -9,8 +9,8 @@
 const mqtt = require('mqtt');
 const config = require('./config');
 const { generateNfcScan } = require('./nfc_reader');
-const { generateCreditTransaction } = require('./coin_card_reader');
-const { generateButtonPress } = require('./setting_button');
+const { generateCreditTransaction } = require('./credit_reader');
+const { generateButtonPress } = require('./settings_button');
 
 const client = mqtt.connect(config.mqttBrokerUrl);
 

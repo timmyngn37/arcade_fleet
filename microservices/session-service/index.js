@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const mqtt = require('mqtt');
 const { connectDB } = require('../shared/db');
 const Session = require('./models/session');
@@ -20,10 +20,11 @@ async function start() {
     try {
       const payload = JSON.parse(message.toString());
 
-      if (topic.startsWith('session/') && topic.endsWith('/event')) {
-        const cabinetId = topic.split('/')[1];
+      if (topic.includes('/session/') && topic.endsWith('/event')) {
+        const parts = topic.split('/'); // ["venue","venue-01","session","A","event"]
+        const cabinetId = parts[3];
         await handleGameplayEvent(cabinetId, payload);
-      } else if (topic === 'shared-io/nfc/scan') {
+      } else if (topic.includes('/shared-io/nfc/scan')) {
         await handleNfcScan(payload);
       }
     } catch (error) {
