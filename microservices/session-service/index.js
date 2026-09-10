@@ -7,18 +7,26 @@ const DuoPairing = require('./models/duoPairing');
 
 const WELLBEING_THRESHOLD_MINUTES = 45;
 
+// How long a session can go without a new event before it's considered finished.
+const INACTIVITY_THRESHOLD_MINUTES = 2;
+const COMPLETION_CHECK_INTERVAL_MS = 30000;
+
+let mqttClient;
+
 async function start() {
   await connectDB();
 
-  const client = mqtt.connect(process.env.MQTT_BROKER_URL || 'mqtt://broker.hivemq.com:1883');
+  mqttClient = mqtt.connect(process.env.MQTT_BROKER_URL || 'mqtt://broker.hivemq.com:1883');
 
-  client.on('connect', () => {
+  mqttClient.on('connect', () => {
     console.log('Session service connected');
-    client.subscribe('venue/+/session/+/event');
-    client.subscribe('venue/+/shared-io/nfc/scan');
+    mqttClient.subscribe('venue/+/session/+/event');
+    mqttClient.subscribe('venue/+/shared-io/nfc/scan');
+
+    setInterval(completeInactiveSessions, COMPLETION_CHECK_INTERVAL_MS);
   });
 
-  client.on('message', async (topic, message) => {
+  mqttClient.on('message', async (topic, message) => {
     try {
       const payload = JSON.parse(message.toString());
       const parts = topic.split('/'); // venue/{venueId}/session/{cabinetId}/event
@@ -34,7 +42,7 @@ async function start() {
     }
   });
 
-  client.on('error', (error) => {
+  mqttClient.on('error', (error) => {
     console.log(`MQTT Error: ${error.message}`);
   });
 }
@@ -45,16 +53,14 @@ async function handleNfcScan(scan) {
 }
 
 async function handleGameplayEvent(cabinetId, event) {
-  // Check whether this cabinet is part of an active duo pairing before
-  // deciding what kind of session it belongs to.
   const pairing = await DuoPairing.findOne({
     $or: [{ cabinet1: cabinetId }, { cabinet2: cabinetId }],
     status: 'active'
   });
 
   const session = pairing
-    ? await findOrCreateDuoSession(pairing)
-    : await findOrCreateSoloSession(cabinetId);
+    ? await findOrCreateDuoSession(pairing, event.venueId)
+    : await findOrCreateSoloSession(cabinetId, event.venueId);
 
   updateAccuracyForCabinet(session, cabinetId, event.grade);
   checkWellbeing(session);
@@ -63,7 +69,7 @@ async function handleGameplayEvent(cabinetId, event) {
   console.log(`Session ${session.sessionId} (${session.mode}) updated for cabinet ${cabinetId}`);
 }
 
-async function findOrCreateDuoSession(pairing) {
+async function findOrCreateDuoSession(pairing, venueId) {
   const cabinets = [pairing.cabinet1, pairing.cabinet2];
 
   let session = await Session.findOne({
@@ -75,6 +81,7 @@ async function findOrCreateDuoSession(pairing) {
   if (!session) {
     session = new Session({
       sessionId: `sess-duo-${pairing.pairingId}`,
+      venueId: venueId,
       playerId: null,
       mode: 'duo',
       cabinets: cabinets,
@@ -83,7 +90,6 @@ async function findOrCreateDuoSession(pairing) {
       }))
     });
 
-    // Link the pairing back to the session it produced, for traceability.
     pairing.sessionId = session.sessionId;
     await pairing.save();
   }
@@ -91,7 +97,7 @@ async function findOrCreateDuoSession(pairing) {
   return session;
 }
 
-async function findOrCreateSoloSession(cabinetId) {
+async function findOrCreateSoloSession(cabinetId, venueId) {
   let session = await Session.findOne({
     mode: 'solo',
     cabinets: [cabinetId],
@@ -101,6 +107,7 @@ async function findOrCreateSoloSession(cabinetId) {
   if (!session) {
     session = new Session({
       sessionId: `sess-${cabinetId}-${Date.now()}`,
+      venueId: venueId,
       playerId: null,
       mode: 'solo',
       cabinets: [cabinetId],
@@ -112,12 +119,9 @@ async function findOrCreateSoloSession(cabinetId) {
 }
 
 function updateAccuracyForCabinet(session, cabinetId, grade) {
-  // Works the same for solo and duo sessions
   let cabinetStats = session.accuracyState.find((c) => c.cabinetId === cabinetId);
 
   if (!cabinetStats) {
-    // Defensive: shouldn't normally happen, but avoids a crash if
-    // a cabinet joins a duo session after it was first created.
     cabinetStats = { cabinetId, hits: 0, misses: 0, accuracy: 100 };
     session.accuracyState.push(cabinetStats);
   }
@@ -143,6 +147,41 @@ function checkWellbeing(session) {
     session.breakSuggested = true;
     console.log(`Wellbeing: suggesting a break for session ${session.sessionId}`);
   }
+}
+
+// Runs periodically (not triggered by any single event) - finds sessions
+// that have gone quiet for too long and closes them out, then tells the
+// rest of the system via MQTT so leaderboard-service can react.
+async function completeInactiveSessions() {
+  const cutoff = new Date(Date.now() - INACTIVITY_THRESHOLD_MINUTES * 60000);
+
+  const staleSessions = await Session.find({
+    status: 'active',
+    updatedAt: { $lt: cutoff }
+  });
+
+  for (const session of staleSessions) {
+    session.status = 'completed';
+    await session.save();
+
+    publishSessionCompleted(session);
+    console.log(`Session ${session.sessionId} marked completed (inactive for ${INACTIVITY_THRESHOLD_MINUTES}+ min)`);
+  }
+}
+
+function publishSessionCompleted(session) {
+  const topic = `venue/${session.venueId}/session/${session.sessionId}/completed`;
+  const payload = {
+    sessionId: session.sessionId,
+    venueId: session.venueId,
+    playerId: session.playerId,
+    mode: session.mode,
+    cabinets: session.cabinets,
+    accuracyState: session.accuracyState
+  };
+
+  mqttClient.publish(topic, JSON.stringify(payload));
+  console.log(`Published to ${topic}`);
 }
 
 start();

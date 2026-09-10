@@ -13,7 +13,8 @@ const cabinetAccuracySchema = new mongoose.Schema(
 const sessionSchema = new mongoose.Schema(
   {
     sessionId: { type: String, required: true, unique: true },
-    playerId: { type: String, default: null }, // null = guest session
+    venueId: { type: String, required: true },
+    playerId: { type: String, default: null },
     mode: { type: String, enum: ['solo', 'duo'], required: true },
     cabinets: { type: [String], required: true },
     status: { type: String, enum: ['active', 'completed'], default: 'active' },
