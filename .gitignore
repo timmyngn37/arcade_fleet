@@ -21,9 +21,7 @@ Thumbs.db
 .idea/
 
 # Node-RED runtime data (keep only exported flow JSON, not runtime state)
-edge/node-red-flows/.flows.json.backup
-edge/node-red-flows/.config.json
-edge/node-red-flows/.sessions.json
+edge/node-red-flows/
 
 # Logs
 *.log
