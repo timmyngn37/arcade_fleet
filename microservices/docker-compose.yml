@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  session-service:
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: node session-service/index.js
+    restart: always
+    env_file:
+      - .env
+
+  telemetry-service:
+    image: node:18-alpine
+    working_dir: /app
+    ports:
+      - "3002:3002"
+    volumes:
+      - .:/app
+    command: node telemetry-service/index.js
+    restart: always
+    env_file:
+      - .env
+
+  leaderboard-service:
+    image: node:18-alpine
+    working_dir: /app
+    ports:
+      - "3001:3001"
+    volumes:
+      - .:/app
+    command: node leaderboard-service/index.js
+    restart: always
+    env_file:
+      - .env
+
+  player-profile-service:
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: node player-profile-service/index.js
+    restart: always
+    env_file:
+      - .env
+
+  device-management-service:
+    image: node:18-alpine
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+    command: node device-management-service/index.js
+    restart: always
+    env_file:
+      - .env
+
+  credits-service:
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: node credits-service/index.js
+    restart: always
+    env_file:
+      - .env
