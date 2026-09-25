@@ -1,5 +1,4 @@
-// TODO - stub only. Planned fields per domain model + proposal:
-// cabinetId, venueId, status, capabilities (e.g. ["touch","motion","haptic","led"])
+// microservices/device-management-service/models/cabinet.js
 
 const mongoose = require('mongoose');
 

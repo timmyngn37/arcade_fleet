@@ -1,5 +1,3 @@
-// TODO - stub only.
-
 const mongoose = require('mongoose');
 
 const venueSchema = new mongoose.Schema(

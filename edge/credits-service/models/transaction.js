@@ -1,12 +1,11 @@
-// TODO - stub only. Planned fields per proposal's Data Design:
-// playerId, transactionType, amount, timestamp
+// edge/credits-service/models/transaction.js
 
 const mongoose = require('mongoose');
 
 const transactionSchema = new mongoose.Schema(
   {
     transactionId: { type: String, required: true, unique: true },
-    playerId: { type: String, required: true },
+    playerId: { type: String, default: null },
     transactionType: { type: String, enum: ['credit', 'debit'], required: true },
     amount: { type: Number, required: true }
   },
