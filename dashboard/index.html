@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Arcade Fleet Operations Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light p-4">
+  <div class="container">
+    <h1 class="text-center mb-4">Arcade Fleet Operations Dashboard</h1>
+    <div class="row">
+      <div class="col-md-6">
+        <div class="card shadow-sm">
+          <div class="card-header bg-primary text-white">Device Status</div>
+          <div class="card-body">
+            <ul id="device-list" class="list-group list-group-flush">
+              <li class="list-group-item">Loading status...</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card shadow-sm">
+          <div class="card-header bg-success text-white">Live Leaderboard (Top 10)</div>
+          <div class="card-body">
+            <table class="table table-striped">
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Score</th>
+                </tr>
+              </thead>
+              <tbody id="leaderboard-body">
+                <tr><td colspan="2">Loading leaderboard...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const HOST_IP = 'localhost';
+
+    const DEVICE_SERVICE_URL = `http://${HOST_IP}:3000`;
+    const LEADERBOARD_SERVICE_URL = `http://${HOST_IP}:3001`;
+
+    async function fetchDevices() {
+      try {
+        const res = await fetch(`${DEVICE_SERVICE_URL}/api/devices/status`);
+        const data = await res.json();
+        document.getElementById('device-list').innerHTML = data.map(d => 
+          `<li class="list-group-item d-flex justify-content-between">Cabinet: ${d.cabinetId} <span class="badge bg-${d.status==='online'?'success':'danger'}">${d.status}</span></li>`
+        ).join('') || '<li class="list-group-item">No devices</li>';
+      } catch (e) {
+        document.getElementById('device-list').innerHTML = '<li class="list-group-item text-danger">Service Unavailable</li>';
+      }
+    }
+
+    async function fetchLeaderboard() {
+      try {
+        const res = await fetch(`${LEADERBOARD_SERVICE_URL}/api/leaderboard/top`);
+        const data = await res.json();
+        document.getElementById('leaderboard-body').innerHTML = data.map(i => 
+          `<tr><td>${i.playerId || 'Guest'}</td><td>${i.score}</td></tr>`
+        ).join('') || '<tr><td colspan="2">No entries</td></tr>';
+      } catch (e) {
+        document.getElementById('leaderboard-body').innerHTML = '<tr><td colspan="2" class="text-danger">Service Unavailable</td></tr>';
+      }
+    }
+
+    fetchDevices(); 
+    fetchLeaderboard();
+    setInterval(() => { 
+      fetchDevices(); 
+      fetchLeaderboard(); 
+    }, 5000);
+  </script>
+</body>
+</html>

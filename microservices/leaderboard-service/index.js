@@ -1,10 +1,32 @@
-// microservices/leaderboard-service/index.js
-
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+const express = require('express');
+const cors = require('cors');
 const mqtt = require('mqtt');
 const { connectDB } = require('../shared/db');
 const LeaderboardEntry = require('./models/leaderboardEntry');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+app.get('/api/leaderboard/top', async (req, res) => {
+  try {
+    const topEntries = await LeaderboardEntry.find().sort({ score: -1 }).limit(10);
+    res.json(topEntries);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const HTTP_PORT = process.env.HTTP_PORT || 3001;
+app.listen(HTTP_PORT, () => {
+  console.log(`Leaderboard HTTP Server running on port ${HTTP_PORT}`);
+});
 
 async function start() {
   await connectDB();
@@ -31,8 +53,6 @@ async function start() {
 }
 
 async function handleSessionCompleted(session) {
-  // Guest sessions never produce a leaderboard entry, per the domain
-  // model - a null playerId means no profile to credit the score to.
   if (!session.playerId) {
     console.log(`Session ${session.sessionId} completed as guest - no leaderboard entry created`);
     return;
@@ -53,8 +73,6 @@ async function handleSessionCompleted(session) {
 }
 
 function calculateScore(accuracyState) {
-  // Simple average accuracy across all cabinets in the session (handles
-  // both solo - one cabinet - and duo - two cabinets - the same way).
   if (!accuracyState || accuracyState.length === 0) return 0;
 
   const total = accuracyState.reduce((sum, cabinet) => sum + cabinet.accuracy, 0);
