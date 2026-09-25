@@ -9,9 +9,8 @@ const WELLBEING_THRESHOLD_MINUTES = 45;
 const INACTIVITY_THRESHOLD_MINUTES = 2;
 const COMPLETION_CHECK_INTERVAL_MS = 30000;
 
-// Simplification, not the real "cabinet selection" step from the proposal
 const PENDING_PLAYER_TTL_MS = 30000;
-const pendingPlayerByVenue = {}; // venueId -> { playerId, resolvedAt }
+const pendingPlayerByVenue = {};
 
 let mqttClient;
 
@@ -65,7 +64,7 @@ function takePendingPlayerId(venueId) {
   if (!pending) return null;
 
   const isExpired = Date.now() - pending.resolvedAt > PENDING_PLAYER_TTL_MS;
-  delete pendingPlayerByVenue[venueId]; // single use either way
+  delete pendingPlayerByVenue[venueId];
 
   return isExpired ? null : pending.playerId;
 }
@@ -80,11 +79,13 @@ async function handleGameplayEvent(cabinetId, event) {
     ? await findOrCreateDuoSession(pairing, event.venueId)
     : await findOrCreateSoloSession(cabinetId, event.venueId);
 
-  updateAccuracyForCabinet(session, cabinetId, event.grade);
-  checkWellbeing(session);
+  if (session) {
+    updateAccuracyForCabinet(session, cabinetId, event.grade);
+    checkWellbeing(session);
 
-  await session.save();
-  console.log(`Session ${session.sessionId} (${session.mode}, playerId: ${session.playerId}) updated for cabinet ${cabinetId}`);
+    await session.save();
+    console.log(`Session ${session.sessionId} (${session.mode}, playerId: ${session.playerId}) updated for cabinet ${cabinetId}`);
+  }
 }
 
 async function findOrCreateDuoSession(pairing, venueId) {
@@ -92,24 +93,37 @@ async function findOrCreateDuoSession(pairing, venueId) {
 
   let session = await Session.findOne({
     mode: 'duo',
-    cabinets: { $all: cabinets, $size: 2 },
+    cabinets: { $all: cabinets,$size: 2 },
     status: 'active'
   });
 
   if (!session) {
-    session = new Session({
-      sessionId: `sess-duo-${pairing.pairingId}`,
-      venueId: venueId,
-      playerId: takePendingPlayerId(venueId),
-      mode: 'duo',
-      cabinets: cabinets,
-      accuracyState: cabinets.map((cabinetId) => ({
-        cabinetId, hits: 0, misses: 0, accuracy: 100
-      }))
-    });
+    try {
+      session = new Session({
+        sessionId: `sess-duo-${pairing.pairingId}-${Date.now()}`,
+        venueId: venueId,
+        playerId: takePendingPlayerId(venueId),
+        mode: 'duo',
+        cabinets: cabinets,
+        accuracyState: cabinets.map((cabinetId) => ({
+          cabinetId, hits: 0, misses: 0, accuracy: 100
+        }))
+      });
 
-    pairing.sessionId = session.sessionId;
-    await pairing.save();
+      await session.save();
+      pairing.sessionId = session.sessionId;
+      await pairing.save();
+    } catch (err) {
+      if (err.code === 11000) {
+        session = await Session.findOne({
+          mode: 'duo',
+          cabinets: { $all: cabinets,$size: 2 },
+          status: 'active'
+        });
+      } else {
+        throw err;
+      }
+    }
   }
 
   return session;
