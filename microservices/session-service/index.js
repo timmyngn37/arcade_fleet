@@ -1,3 +1,5 @@
+// microservices/session-service/index.js
+
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const mqtt = require('mqtt');
@@ -33,7 +35,14 @@ async function start() {
       const parts = topic.split('/');
 
       if (parts[2] === 'session' && parts[4] === 'event') {
+        const venueId = parts[1];
         const cabinetId = parts[3];
+
+        if (!cabinetId) {
+          rejectEvent(venueId, 'missing cabinetId in topic');
+          return;
+        }
+
         await handleGameplayEvent(cabinetId, payload);
       } else if (topic.endsWith('/player-profile/resolved')) {
         const venueId = parts[1];
@@ -47,6 +56,14 @@ async function start() {
   mqttClient.on('error', (error) => {
     console.log(`MQTT Error: ${error.message}`);
   });
+}
+
+function rejectEvent(venueId, reason) {
+  console.log(`Rejected event for venue ${venueId}: ${reason}`);
+  mqttClient.publish(
+    `venue/${venueId}/session/rejected`,
+    JSON.stringify({ reason, timestamp: Date.now() })
+  );
 }
 
 function handlePlayerResolved(venueId, resolved) {
@@ -79,13 +96,11 @@ async function handleGameplayEvent(cabinetId, event) {
     ? await findOrCreateDuoSession(pairing, event.venueId)
     : await findOrCreateSoloSession(cabinetId, event.venueId);
 
-  if (session) {
-    updateAccuracyForCabinet(session, cabinetId, event.grade);
-    checkWellbeing(session);
+  updateAccuracyForCabinet(session, cabinetId, event.grade);
+  checkWellbeing(session);
 
-    await session.save();
-    console.log(`Session ${session.sessionId} (${session.mode}, playerId: ${session.playerId}) updated for cabinet ${cabinetId}`);
-  }
+  await session.save();
+  console.log(`Session ${session.sessionId} (${session.mode}, playerId: ${session.playerId}) updated for cabinet ${cabinetId}`);
 }
 
 async function findOrCreateDuoSession(pairing, venueId) {
@@ -93,40 +108,44 @@ async function findOrCreateDuoSession(pairing, venueId) {
 
   let session = await Session.findOne({
     mode: 'duo',
-    cabinets: { $all: cabinets,$size: 2 },
+    cabinets: { $all: cabinets, $size: 2 },
     status: 'active'
   });
 
-  if (!session) {
-    try {
-      session = new Session({
-        sessionId: `sess-duo-${pairing.pairingId}-${Date.now()}`,
-        venueId: venueId,
-        playerId: takePendingPlayerId(venueId),
-        mode: 'duo',
-        cabinets: cabinets,
-        accuracyState: cabinets.map((cabinetId) => ({
-          cabinetId, hits: 0, misses: 0, accuracy: 100
-        }))
-      });
+  if (session) return session;
 
-      await session.save();
-      pairing.sessionId = session.sessionId;
-      await pairing.save();
-    } catch (err) {
-      if (err.code === 11000) {
-        session = await Session.findOne({
-          mode: 'duo',
-          cabinets: { $all: cabinets,$size: 2 },
-          status: 'active'
-        });
-      } else {
-        throw err;
-      }
+  // Two events for the same duo pairing can arrive close enough together
+  // that both pass the findOne check above before either has saved -
+  // both then try to create a session with the same deterministic
+  // sessionId (sess-duo-{pairingId}). The unique index on sessionId
+  // makes the second insert throw E11000; instead of losing that
+  // event, re-fetch the session the first insert created and use it.
+  try {
+    session = new Session({
+      sessionId: `sess-duo-${pairing.pairingId}`,
+      venueId: venueId,
+      playerId: takePendingPlayerId(venueId),
+      mode: 'duo',
+      cabinets: cabinets,
+      accuracyState: cabinets.map((cabinetId) => ({
+        cabinetId, hits: 0, misses: 0, accuracy: 100
+      }))
+    });
+
+    await session.save();
+
+    pairing.sessionId = session.sessionId;
+    await pairing.save();
+
+    return session;
+  } catch (error) {
+    if (error.code === 11000) {
+      console.log(`Duo session creation race detected for pairing ${pairing.pairingId} - reusing the session the other event created`);
+      session = await Session.findOne({ sessionId: `sess-duo-${pairing.pairingId}` });
+      return session;
     }
+    throw error;
   }
-
-  return session;
 }
 
 async function findOrCreateSoloSession(cabinetId, venueId) {
