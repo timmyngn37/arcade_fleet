@@ -48,7 +48,7 @@ async function start() {
       await Cabinet.findOneAndUpdate(
         { cabinetId, venueId },
         { cabinetId, venueId, status: payload.status, capabilities: payload.capabilities },
-        { upsert: true, new: true }
+        { upsert: true, after: true }
       );
 
       console.log(`Cabinet ${cabinetId} at ${venueId} registered/updated: ${payload.status}`);
