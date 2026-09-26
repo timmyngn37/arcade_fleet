@@ -1,109 +1,268 @@
 # Scalable Architecture for a Networked Arcade Gaming Cabinet Fleet
 
-IoT architecture prototype for the rhythm-game cabinet fleet: edge-tier
-cabinets with local judgement processing, a shared NFC/coin-card input
-cluster, a standalone comfort fan, and a set of event-driven cloud
-microservices connected over MQTT.
+IoT architecture prototype for a networked rhythm-game cabinet fleet. The system combines edge-side gameplay processing with event-driven cloud microservices so multiple arcade cabinets can coordinate sessions, player identity, leaderboards, credits, telemetry, device status, and cross-cabinet interactions.
 
 ## Architecture
 
-- **Edge tier** (`edge/`) - physical sensors/actuators simulated in Node.js,
-  plus one Node-RED flow doing local judgement (touch/motion grading,
-  local and cross-cabinet haptic feedback).
-- **Transport tier** - MQTT (HiveMQ public test broker for now). Topics are
-  venue-scoped (`venue/{venueId}/...`) to support multiple arcade locations.
-- **Cloud tier** (`microservices/`) - independent Node.js services, each
-  with its own MongoDB model, communicating entirely over MQTT (no HTTP
-  between services). `player-profile-service` resolves NFC scans directly;
-  `session-service` binds resolved players to sessions and detects duo
-  pairings via MongoDB; `leaderboard-service` reacts to completed sessions;
-  `device-management-service` and `credits-service` maintain simple
-  registries from cabinet/shared-IO events.
+The project follows an edge-to-cloud hybrid architecture:
 
-AWS deployment is intentionally out of scope until covered later in the
-unit; all cloud-tier services currently run as local Node processes
-standing in for what will later be AWS Lambda/managed services.
+- **Edge tier** (`edge/`) — simulated cabinet sensors and actuators, shared NFC/coin-card/buttons input, a standalone comfort fan, telemetry generation, and a Node-RED judgement flow for local gameplay processing.
+- **Transport tier** — MQTT using venue-scoped topics such as `venue/{venueId}/...`.
+- **Cloud tier** (`microservices/`) — independent Node.js services communicating over MQTT and persisting data to MongoDB Atlas.
+- **AWS deployment** — the cloud services are containerised with Docker Compose and deployed on Amazon EC2. An Application Load Balancer fronts the operational dashboard, while an Auto Scaling Group provides instance-level scalability and resilience.
+
+Latency-sensitive gameplay judgement remains at the edge, while coordination, persistence, telemetry, and fleet-level services run in the cloud.
+
+## Core components
+
+### Edge tier
+
+- **Cabinet node** — simulates touch and motion inputs and local actuators.
+- **Shared IO** — simulates NFC scans, credit/card input, and settings controls.
+- **Comfort fan** — simulates temperature/humidity sensing and fan actuation.
+- **Telemetry agent** — publishes device health information.
+- **Node-RED judgement flow** — calculates note grades and routes local/cross-cabinet haptic feedback.
+
+### Cloud microservices
+
+- **session-service** — manages solo/duo sessions, player binding, duo pairing, session state, and duplicate-session protection.
+- **telemetry-service** — ingests device health and telemetry events.
+- **leaderboard-service** — creates leaderboard entries for completed non-guest sessions.
+- **player-profile-service** — resolves NFC scans to player profiles.
+- **device-management-service** — maintains cabinet/device status.
+- **credits-service** — records credit transactions.
+
+## Data layer
+
+MongoDB Atlas is used for persistent storage, including:
+
+- player profiles
+- sessions
+- duo pairings
+- leaderboard entries
+- health checks
+- cabinet/device records
+- credit transactions
 
 ## Prerequisites
 
 - Node.js
-- npm packages: run `npm install` inside both `edge/` and `microservices/`
-- Node-RED installed globally: `npm install -g node-red`
-- A MongoDB Atlas cluster (see `.env.example`)
+- npm
+- Docker and Docker Compose for cloud deployment
+- Node-RED
+- MongoDB Atlas
+- MQTT broker access
 
-## Setup
+## Environment setup
 
-1. Copy `.env.example` to `.env` in **both** `edge/` and `microservices/`.
-   - `edge/.env` needs `MQTT_BROKER_URL` and `VENUE_ID` (no `MONGODB_URI` -
-     edge nodes never connect to the database directly, only via MQTT).
-   - `microservices/.env` needs `MQTT_BROKER_URL` and `MONGODB_URI`.
-2. `cd edge && npm install`
-3. `cd microservices && npm install`
-4. Seed sample data (once, after MongoDB is connected):
-   - `cd microservices/session-service && node seed_duo_pairing.js`
-   - `cd microservices/player-profile-service && node seed_profiles.js`
+The repository includes `.env.example`. Do not commit real credentials.
 
-## Running the system
+Create the required environment files:
 
-Start in this order, each in its own terminal:
+```bash
+cp .env.example edge/.env
+cp .env.example microservices/.env
+```
 
-1. `cd microservices/telemetry-service && node index.js`
-2. `cd microservices/session-service && node index.js`
-3. `cd microservices/leaderboard-service && node index.js`
-4. `cd microservices/player-profile-service && node index.js`
-5. `cd microservices/device-management-service && node index.js`
-6. `cd microservices/credits-service && node index.js`
-7. `node-red --userDir ./edge/node-red-flows` (open localhost:1880, import
-   `judgement_flow.json` if not already loaded, then Deploy)
-8. `cd edge/fan && node index.js`
-9. `cd edge && node telemetry_agent.js`
-10. `cd edge/cabinet && CABINET_ID=A node index.js`
-11. `cd edge/cabinet && CABINET_ID=B node index.js` (needed to see duo
-    pairing and cross-cabinet haptic effects - see Known Limitations)
-12. `cd edge/shared-io && node index.js`
+Typical values include:
 
-All edge nodes must use the same `VENUE_ID` in their `.env` (or rely on the
-shared default `venue-01`) - topics are scoped per venue, so a mismatch
-means messages won't be received.
+```env
+MQTT_BROKER_URL=mqtt://broker.hivemq.com:1883
+MONGODB_URI=your_mongodb_connection_string
+VENUE_ID=venue-01
+```
+
+The edge tier should not require direct database access; cloud microservices connect to MongoDB Atlas.
+
+## Install dependencies
+
+```bash
+cd edge
+npm install
+
+cd ../microservices
+npm install
+```
+
+## Seed sample data
+
+After configuring MongoDB:
+
+```bash
+cd microservices/session-service
+node seed_duo_pairing.js
+```
+
+```bash
+cd microservices/player-profile-service
+node seed_profiles.js
+```
+
+## Run cloud microservices locally
+
+From `microservices/`:
+
+```bash
+docker compose up -d
+```
+
+This starts:
+
+- session-service
+- telemetry-service
+- leaderboard-service
+- player-profile-service
+- device-management-service
+- credits-service
+
+View logs with:
+
+```bash
+docker compose logs -f
+```
+
+## Run edge components
+
+Start the required edge processes in separate terminals.
+
+Cabinet A:
+
+```bash
+cd edge/cabinet
+CABINET_ID=A node index.js
+```
+
+Cabinet B:
+
+```bash
+cd edge/cabinet
+CABINET_ID=B node index.js
+```
+
+Shared IO:
+
+```bash
+cd edge/shared-io
+node index.js
+```
+
+Comfort fan:
+
+```bash
+cd edge/fan
+node index.js
+```
+
+Telemetry agent:
+
+```bash
+cd edge
+node telemetry_agent.js
+```
+
+For Node-RED, import:
+
+```
+edge/node-red-flow/judgement_flow.json
+```
+
+and deploy the flow.
+
+## AWS deployment
+
+The final implementation has been deployed on AWS using:
+
+- **EC2** for the containerised Node.js microservices
+- **Docker Compose** to manage service processes
+- **Application Load Balancer** for the operational dashboard
+- **Auto Scaling Group** for instance-level scaling and resilience
+- **CloudWatch** for operational monitoring
+
+Core gameplay/session traffic continues to use MQTT directly. The Application Load Balancer is used for operational/dashboard HTTP traffic rather than as the MQTT data plane.
+
+An Auto Scaling experiment was performed by generating sustained CPU load on the EC2 instance. CPU utilisation reached approximately 91%, triggering AWS to provision a second instance. Both instances subsequently registered as healthy targets in the target group.
+
+## Validation performed
+
+The final system was evaluated for:
+
+- duo-session concurrency and duplicate-session prevention
+- offline buffering and reconnection
+- telemetry publishing under burst load
+- malformed MQTT topic/input rejection
+- AWS automatic scaling
+- service health and data persistence
+
+The edge nodes can temporarily buffer gameplay events during connectivity loss and flush them in order after MQTT connectivity is restored.
+
+## Security
+
+Implemented measures include:
+
+- environment variables for credentials and configuration
+- `.env` files excluded from Git
+- input/topic validation in cloud services
+- separation between edge nodes and direct database access
+- AWS deployment with controlled cloud-side service exposure
+
+The current project uses the public HiveMQ broker for prototype/testing purposes. A production deployment should use authenticated MQTT over TLS, device-specific credentials or certificates, and stricter broker-side access control.
 
 ## Current status
 
 | Component | Status |
 |---|---|
-| Cabinet node (sensors/actuators, online status announcement) | Done |
-| Shared-IO node (NFC/coin/buttons) | Done |
-| Comfort-fan node (`edge/fan/`) | Done |
-| telemetry_agent.js | Done |
-| Node-RED judgement_flow.json | Done (venue-scoped topics) |
-| session-service | Done - duo pairing via MongoDB, session completion, wellbeing, player binding |
-| telemetry-service | Done |
-| leaderboard-service | Done - creates entries for completed non-guest sessions |
-| player-profile-service | Done - resolves NFC scans directly via MQTT, no HTTP |
-| device-management-service | Done - basic cabinet registry from online announcements |
-| credits-service | Done - records transactions (not yet linkable to a player) |
-| AWS deployment | Not started - planned after AWS is covered in the unit |
+| Cabinet sensors/actuators | Done |
+| Shared IO | Done |
+| Comfort fan | Done |
+| Telemetry agent | Done |
+| Node-RED judgement flow | Done |
+| Session service | Done |
+| Telemetry service | Done |
+| Leaderboard service | Done |
+| Player profile service | Done |
+| Device management service | Done |
+| Credits service | Done |
+| MongoDB Atlas persistence | Done |
+| Docker Compose deployment | Done |
+| AWS EC2 deployment | Done |
+| Application Load Balancer | Done |
+| Auto Scaling demonstration | Done |
+| CloudWatch monitoring | Done |
 
 ## Known limitations
 
-- Duo cabinet pairing (`A` ↔ `B`) is seeded via `seed_duo_pairing.js` rather
-  than created dynamically; `session-service` queries this data from
-  MongoDB correctly, but nothing yet creates a `DuoPairing` on demand.
-- Binding a scanned player to a session is a simplification: a resolved
-  playerId is held per-venue for 30 seconds and picked up by whichever
-  session is created next at that venue, rather than a real
-  "cabinet selection" input naming a specific cabinet. This can
-  misattribute a player if two sessions start close together.
-- `credits-service` records transactions as anonymous (`playerId: null`),
-  since the coin/card reader doesn't currently report which card, if any,
-  was tapped beforehand.
-- All topics assume a single venue in testing; multi-venue scaling is
-  supported by the topic structure but not yet exercised with real
-  multi-venue data.
-- Health checks only cover the comfort fan; cabinet/shared-IO health
-  reporting and the boot-time device certificate/token check described in
-  the proposal have not been implemented.
-- Storage currently uses MongoDB uniformly; the proposal's planned SQL/NoSQL
-  split between session-credits and leaderboard-telemetry has not been
-  implemented.
+- Duo pairing between cabinets is currently seeded with `seed_duo_pairing.js` rather than created dynamically through a management UI.
+- Player-to-session binding is simplified and uses a short-lived venue-level resolved player state rather than an explicit cabinet-selection workflow.
+- Credit transactions are currently stored without a resolved player ID.
+- Multi-venue topic isolation is supported by the MQTT topic structure but has not been extensively tested across real independent venues.
+- Storage uses MongoDB for all service data rather than the earlier proposed relational/NoSQL split.
+- The prototype uses a public MQTT broker and does not yet implement production-grade device certificate authentication.
+- The current Docker Compose configuration uses bind-mounted source code with the Node Alpine image instead of dedicated per-service production Dockerfiles.
 
-See `docs/project_status.pdf` for the full write-up.
+## Repository structure
+
+```text
+.
+├── dashboard/
+│   └── index.html
+├── edge/
+│   ├── cabinet/
+│   ├── fan/
+│   ├── node-red-flow/
+│   ├── shared-io/
+│   └── telemetry_agent.js
+├── microservices/
+│   ├── credits-service/
+│   ├── device-management-service/
+│   ├── leaderboard-service/
+│   ├── player-profile-service/
+│   ├── session-service/
+│   ├── telemetry-service/
+│   └── docker-compose.yml
+├── .env.example
+└── README.md
+```
+
+## Project context
+
+This repository was developed as the implementation for a scalable IoT architecture project focused on a fleet of networked arcade rhythm-game cabinets.
